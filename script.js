@@ -1,4 +1,6 @@
-let previousPlaybackRate = 1;  // Store the previous playback speed
+console.log("Content script loaded for YouTube video playback speed control.");
+
+let previousPlaybackRate = 1;
 
 function getVideoElement() {
     return document.querySelector('video');
@@ -21,78 +23,111 @@ function togglePictureInPicture(video) {
 }
 
 function createSpeedOverlay() {
-    const overlay = document.createElement('div');
-    overlay.id = 'speed-overlay';
-    overlay.style.position = 'absolute';
-    overlay.style.top = '10px'; 
-    overlay.style.right = '10px'; 
-    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-    overlay.style.color = 'white';
-    overlay.style.padding = '10px';
-    overlay.style.borderRadius = '5px';
-    overlay.style.zIndex = '9999';
-    overlay.style.fontSize = '16px';
-    overlay.style.display = 'none';
+    const overlay = document.getElementById('speed-overlay') || document.createElement('div');
+    if (!overlay.id) {
+        overlay.id = 'speed-overlay';
+        overlay.style.position = 'absolute';
+        overlay.style.top = '10px';
+        overlay.style.right = '10px';
+        overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        overlay.style.color = 'white';
+        overlay.style.padding = '10px';
+        overlay.style.borderRadius = '5px';
+        overlay.style.zIndex = '9999';
+        overlay.style.fontSize = '16px';
+        overlay.style.display = 'none';
 
-    const videoContainer = document.getElementById('movie_player');
-    if (videoContainer) {
-        videoContainer.style.position = 'relative'; 
-        console.log("player found");
-        videoContainer.appendChild(overlay); 
-    } else {
-        console.log("player not found");
-        document.body.appendChild(overlay); 
+        const videoContainer = document.getElementById('movie_player');
+        if (videoContainer) {
+            videoContainer.appendChild(overlay);
+        } else {
+            document.body.appendChild(overlay);
+        }
     }
+    return overlay;
 }
 
 function updateSpeedOverlay(speed) {
-    const overlay = document.getElementById('speed-overlay');
+    const overlay = createSpeedOverlay();
     overlay.textContent = `Speed: ${speed.toFixed(2)}x`;
-    overlay.style.display = 'block'; 
+    overlay.style.display = 'block';
     setTimeout(() => {
-        overlay.style.display = 'none'; 
+        overlay.style.display = 'none';
     }, 1000);
 }
 
-function handleVisibilityChange(video) {
-    if (document.hidden) {
-        video.pause();
-    } else {
-        video.play();
-    }
+function checkShortcut(event, shortcut) {
+    if (!shortcut) return false;
+    
+    const parts = shortcut.split('+');
+    const key = parts[parts.length - 1].toLowerCase();
+    const needsAlt = parts.includes('Alt');
+    const needsCtrl = parts.includes('Ctrl');
+
+    return event.key.toLowerCase() === key && 
+           event.altKey === needsAlt && 
+           event.ctrlKey === needsCtrl;
 }
+
 function handleShortcuts(event) {
     const video = getVideoElement();
     if (!video || isInputActive(getInputElement())) return;
+    console.log("Keydown event detected:", {
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey
+    });
 
-    switch (event.key.toLowerCase()) {
-        case ']':
-            createSpeedOverlay();
+    chrome.runtime.sendMessage({ action: "getShortcuts" }, (data) => {
+        console.log("Retrieved shortcuts:", data);
+        if (checkShortcut(event, data.speedUpShortcut)) {
+            console.log("Speed up shortcut triggered");
             video.playbackRate += 0.10;
-            localStorage.setItem('playbackSpeed', video.playbackRate);
+            chrome.runtime.sendMessage({ action: "savePlaybackSpeed", playbackSpeed: video.playbackRate });
             updateSpeedOverlay(video.playbackRate);
-            break;
-        case '[':
-            createSpeedOverlay();
+        }
+        else if (checkShortcut(event, data.speedDownShortcut)) {
             video.playbackRate = Math.max(0.10, video.playbackRate - 0.10);
-            localStorage.setItem('playbackSpeed', video.playbackRate);
+            chrome.runtime.sendMessage({ action: "savePlaybackSpeed", playbackSpeed: video.playbackRate });
             updateSpeedOverlay(video.playbackRate);
-            break;
-        case 'p':
+        }
+        else if (checkShortcut(event, data.pictureInPictureShortcut)) {
             togglePictureInPicture(video);
-            break;
-        case 'h':
+        }
+        else if (checkShortcut(event, data.toggleSuggestionsShortcut)) {
             const suggestions = document.querySelector('#related');
-            suggestions.style.display = suggestions.style.display === 'none' ? 'block' : 'none';
-            break;
+            if (suggestions) {
+                suggestions.style.display = suggestions.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+    });
+}
+
+function initializePlaybackSpeed() {
+    const video = getVideoElement();
+    if (video) {
+        chrome.runtime.sendMessage({ action: "getShortcuts" }, (data) => {
+            const savedSpeed = data.playbackSpeed || 1;
+            video.playbackRate = savedSpeed;
+        });
+        video.onloadeddata = () => {
+            chrome.runtime.sendMessage({ action: "getShortcuts" }, (data) => {
+                const savedSpeed = data.playbackSpeed || 1;
+                video.playbackRate = savedSpeed;
+            });
+        };
     }
 }
 
+initializePlaybackSpeed();
 document.addEventListener('keydown', handleShortcuts);
-document.addEventListener('visibilitychange', () => handleVisibilityChange(getVideoElement()));
-setInterval(() => {
-   const video = getVideoElement();
-   if (video) {
-    video.playbackRate = localStorage.getItem('playbackSpeed');
-   }
-}, 500);
+document.addEventListener('visibilitychange', () => {
+    const video = getVideoElement();
+    if (video) {
+        if (document.hidden) {
+            video.pause();
+        } else {
+            video.play();
+        }
+    }
+});

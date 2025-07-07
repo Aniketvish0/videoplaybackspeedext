@@ -5,12 +5,14 @@
   "description": "Shows the current playback speed of a YouTube video.",
   "permissions": [
     "activeTab",
+    "storage",
+    "tabs",
     "scripting"
   ],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/icon16.png"
+      "32": "icons/icons32.png"
     }
   },
   "content_scripts": [
@@ -23,3 +25,4 @@
     "service_worker": "background.js"
   }
 }
+
